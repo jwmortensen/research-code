@@ -39,57 +39,71 @@ filepath <- "../Data/Heat/RawNCDFFiles/houston_hrldas_"
 endpiece <- "_alldays.nc"
 
 list.names <- as.character(unique.dates)
-test.size <- 10
 vars <- c("HI_MAX", "HI_MIN")
 
 # Register cores to use
-registerDoParallel(cores=12)
-temp.data <- foreach (i=1:test.size) %dopar% { #:length(unique.days)) {
-  # Get variables for the observed day
+numCores <- 4
+registerDoParallel(cores=numCores)
+temp.data <- foreach (i=1:length(unique.days)) %dopar% {
+  ######################################
+  # Get variables for the observed day #
+  ######################################
   ymd <- dateToYMD(unique.dates[i])
   ncdf.file <- open.ncdf(paste(filepath, ymd[1],  ymd[2],  endpiece, sep=""))
-  for (var in vars) {
-    assign(paste(var, "0"), getVarOnDay(ncdf.file, var, ymd[3])
+  var0 <- matrix(NA, ncol=length(vars), nrow=nrow(hrldas.grid))
+  for (j in 1:length(vars)) {
+    var0[,j] <-  getVarOnDay(ncdf.file, vars[j], ymd[3])
   }
-#  hi_max <- getVarOnDay(ncdf.file,"HI_MAX",ymd[3])
-#  hi_min <- getVarOnDay(ncdf.file, "HI_MIN",ymd[3])
-
-  # Get lag 1 variables
+  #######################
+  # Get lag 1 variables #
+  #######################
   ymd.l1 <- dateToYMD(lag1[[i]])
   # If the month is different, open up a new ncdf file
   if (ymd.l1[2] != ymd[2]) {
     close.ncdf(ncdf.file)
     ncdf.file <- open.ncdf(paste(filepath, ymd.l1[1], ymd.l1[2], endpiece, sep=""))
   }
-  hi_max.l1 <- getVarOnDay(ncdf.file,"HI_MAX",ymd.l1[3])
-  hi_min.l1 <- getVarOnDay(ncdf.file,"HI_MIN",ymd.l1[3])
+  var1 <- matrix(NA, ncol=length(vars), nrow=nrow(hrldas.grid))
+  for (k in 1:length(vars)) {
+    var1[,k] <-  getVarOnDay(ncdf.file, vars[k], ymd[3])
+  }
   
-  # Get lag 2 variables
+  #######################
+  # Get lag 2 variables #
+  #######################
+  var2 <- matrix(NA, ncol=length(vars), nrow=nrow(hrldas.grid))
   ymd.l2 <- dateToYMD(lag2[[i]])
+
   # If the month for lag2 is different than the month for lag1, open up a new ncdf file
   if (ymd.l2[2] != ymd.l1[2]) {
     close.ncdf(ncdf.file) 
     ncdf.file <- open.ncdf(paste(filepath, ymd.l2[1], ymd.l2[2], endpiece, sep=""))
   }
-  hi_max.l2 <- getVarOnDay(ncdf.file,"HI_MAX",ymd.l2[3])
-  hi_min.l2 <- getVarOnDay(ncdf.file,"HI_MIN",ymd.l2[3])
+  for (l in 1:length(vars)) {
+    var2[,l] <-  getVarOnDay(ncdf.file, vars[l], ymd[3])
+  }
 
-  # Get lag 3 variables
+  #######################
+  # Get lag 3 variables #
+  #######################
+  var3 <- matrix(NA, ncol=length(vars), nrow=nrow(hrldas.grid))
   ymd.l3 <- dateToYMD(lag3[[i]])
+
   # Get new ncdf if month has changed
   if (ymd.l3[2] != ymd.l2[2]) {
     close.ncdf(ncdf.file)
     ncdf.file <- open.ncdf(paste(filepath, ymd.l3[1], ymd.l3[2], endpiece, sep=""))
   }
-  hi_max.l3 <- getVarOnDay(ncdf.file,"HI_MAX",ymd.l3[3])
-  hi_min.l3 <- getVarOnDay(ncdf.file,"HI_MIN",ymd.l3[3])
+  for (m in 1:length(vars)) {
+    var3[,m] <-  getVarOnDay(ncdf.file, vars[m], ymd[3])
+  }
 
   # Combine variables and insert as data into list
-#  time.temp.data[[list.names[i]]] <- cbind(hrldas.grid, hi_max, hi_max.l1, hi_max.l2, hi_max.l3)[kp.gp,]
   close.ncdf(ncdf.file)
-  cbind(hrldas.grid, hi_max, hi_max.l1, hi_max.l2, hi_max.l3)[kp.gp,]
+  df <- cbind(hrldas.grid, var0, var1, var2, var3)[kp.gp,]
+  names(df) <- c("LAT", "LON", paste(vars, ".0", sep=""), paste(vars,".1",sep=""), paste(vars,".2",sep=""), paste(vars,".3",sep=""))
+  df
 }
 
-names(temp.data) <- list.names[1:test.size]
-# Uncomment next line when doing the real thing
-# names(time.temp.data) <- list.names
+names(time.temp.data) <- list.names
+save(temp.data, file="TemperatureData_withMissing.RData")
