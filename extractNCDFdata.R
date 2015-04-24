@@ -1,6 +1,6 @@
 library(ncdf)
 library(doParallel)
-load("../Spatial911PtPtrn.RData")
+load("./RData/Spatial911PtPtrn.RData")
 
 ## Takes a Date object and returns vector with year, month, day
 dateToYMD <- function(date) {
@@ -13,10 +13,12 @@ dateToYMD <- function(date) {
 
 ## Gets the values from an NCDF file for a given variable on a given day
 ## Converts it to a vector so that latitude and longitude coordinates are
-## consistent with hrldas.grid
+## consistent with hrldas.grid. Note that this function also centers the 
+## temperature data. If uncentered data is desired, this code needs to be
+## changed.
 getVarOnDay <- function(ncdf.file, varid, day) {
   var <- get.var.ncdf(ncdf.file, varid=varid)[,,as.numeric(day)]
-  var.vec <- as.vector(t(var))
+  var.vec <- scale(as.vector(t(var)), scale=FALSE) 
   var.vec
 }
 
