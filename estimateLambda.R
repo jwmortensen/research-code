@@ -11,4 +11,4 @@ calc.log.lambda <- function(H, lambda.star, beta, vars) {
   lambda.star + as.matrix(H[,vars])%*%beta - log(sum(exp(lambda.star + as.matrix(H[,vars])%*%beta)))
 }
 
-response <- mclapply(temp.data.nomiss, calc.log.lambda, lambda.star=lambda.star, beta=beta, vars=lagged.vars, mc.cores=16)
+log.lambda <- mclapply(temp.data.nomiss, calc.log.lambda, lambda.star=lambda.star, beta=beta, vars=lagged.vars, mc.cores=16)
