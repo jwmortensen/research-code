@@ -225,7 +225,6 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi))
 }
 
-Rprof(filename="Rprof1.out")
+Rprof()
 system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
-summaryRprof(filename="Rprof30.out")
