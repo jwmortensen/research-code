@@ -8,7 +8,7 @@ load("./RData/Spatial911PtPtrn.RData")
 load("./RData/TempDataNoMiss.RData")
 
 # Variables used throughout
-num.cores <- 1
+num.cores <- 30
 num.pred.locs <- nrow(pp.grid)
 
 # Create matrix to allow for plotting of values
@@ -63,7 +63,7 @@ timeDist <- rdist(0:3)
 nu <- 3.5
 
 # Generate matern matrices for varying values of phi
-lambda.phi.seq <- seq(10, 500, length=5)
+lambda.phi.seq <- seq(10, 500, length=10)
 lambda.matern.matrices <- mclapply(lambda.phi.seq, function(phi) { 
   Matern(spaceDist, alpha=phi, nu=nu)}, 
   mc.cores=num.cores) 
@@ -122,15 +122,14 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
       log(sum(exp(lambda.star + as.matrix(H[,vars])%*%beta)))
   }
   
-  GetLogLambda <- function(x) {
-    log.lambda[[x["date.index"]]][x["location.index"]]
-  }
-  
   LogLike <- function(lambda.star, beta) {
-    log.lambda <- mclapply(temp.data.nomiss, calc.log.lambda, 
+    log.lambda <- mclapply(temp.data.nomiss, CalcLogLambda, 
                            lambda.star=lambda.star, beta=beta, 
                            vars=lagged.vars, mc.cores=num.cores)
-    obs.log.lambda <- apply(merged, 1, get.log.lambda)
+    GetLogLambda <- function(x) {
+      log.lambda[[x["date.index"]]][x["location.index"]]
+    }
+    obs.log.lambda <- apply(merged, 1, GetLogLambda)
     sum(obs.log.lambda)
   }
   
@@ -223,8 +222,7 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     beta[i, ] <- ifelse(log(runif(1)) < log.MH, prop.beta, beta[i-1, ])
   }
  
-  return(list(delta=delta, lambda.star=lambda.star, lambda.var=lambda.var,
-              beta=beta, beta.var=beta.var))
+  return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi))
 }
 
 system.time(draws <- MHGibbs(100, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
