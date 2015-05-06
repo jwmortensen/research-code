@@ -96,7 +96,7 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   postfix <- c(".0",".1",".2",".3")
   # for now, this only evaluates for HI_MAX
   lagged.vars <- paste(vars[1], postfix, sep="")
-  H <- mclapply(temp.data.nomiss, function(x) { as.matrix(x[,lagged.vars]) })
+  H <- lapply(temp.data.nomiss, function(x) { as.matrix(x[,lagged.vars]) })
   
   # initialize containers to hold draws
   lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
@@ -124,9 +124,8 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   }
   
   LogLike <- function(lambda.star, beta) {
-    log.lambda <- mclapply(H, CalcLogLambda, 
-                           lambda.star=lambda.star, beta=beta, 
-                           mc.cores=num.cores)
+    log.lambda <- lapply(H, CalcLogLambda, 
+                           lambda.star=lambda.star, beta=beta)
     GetLogLambda <- function(x) {
       log.lambda[[x["date.index"]]][x["location.index"]]
     }
@@ -226,7 +225,7 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi))
 }
 
-Rprof(filename="Rprof3.out")
-system.time(draws <- MHGibbs(100, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
+Rprof(filename="Rprof1.out")
+system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
-summaryRprof(filename="Rprof3.out")
+summaryRprof(filename="Rprof30.out")
