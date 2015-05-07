@@ -2,6 +2,7 @@ library(parallel)
 library(LatticeKrig)
 library(FNN)
 library(MASS)
+library(utils)
 
 source("AMCMCUpdate.R")
 load("./RData/Spatial911PtPtrn.RData")
@@ -97,6 +98,7 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   # for now, this only evaluates for HI_MAX
   lagged.vars <- paste(vars[1], postfix, sep="")
   H <- lapply(temp.data.nomiss, function(x) { as.matrix(x[,lagged.vars]) })
+  pb <- txtProgressBar(min=0, max=ndraws, style=3)
   
   # initialize containers to hold draws
   lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
@@ -220,12 +222,14 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     log.MH <- log.MH + LogBetaPrior(prop.beta, beta.var[i], beta.phi.ind) -
       LogBetaPrior(beta[i-1, ], beta.var[i], beta.phi.ind)
     beta[i, ] <- ifelse(log(runif(1)) < log.MH, prop.beta, beta[i-1, ])
+    setTxtProgressBar(pb, i)
   }
  
   return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi))
 }
 
 Rprof()
-system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
+time <- system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
-
+summaryRprof()
+save(draws, file="./RData/MHDrawsHI_MAX.RData")
