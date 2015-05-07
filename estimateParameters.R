@@ -3,6 +3,7 @@ library(LatticeKrig)
 library(FNN)
 library(MASS)
 library(utils)
+library(MCMCpack)
 
 source("AMCMCUpdate.R")
 load("./RData/Spatial911PtPtrn.RData")
@@ -125,6 +126,10 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
       log(sum(exp(lambda.star + H%*%beta)))
   }
   
+  FacToNum <- function(x) {
+    as.numeric(as.character(x))
+  }
+
   LogLike <- function(lambda.star, beta) {
     log.lambda <- lapply(H, CalcLogLambda, 
                            lambda.star=lambda.star, beta=beta)
@@ -163,6 +168,28 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
   
   # delta is conjugate so we just draw it up front
   delta <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
+  
+  # fit age with a dirichlet prior, which is conjugate
+  age.alpha <- 2
+  count.ages <- data.frame(table(calls$Age))
+  names(count.ages) <- c("age", "count")
+  count.ages$age <- FacToNum(count.ages$age)
+  count.ages$count <- FacToNum(count.ages$count)
+  n.ages <- merge(data.frame(age=0:100), count.ages, all.x=TRUE)
+  n.ages$count[is.na(n.ages$count)] <- 0
+  age.draws <- rdirichlet(ndraws, n.ages$count + age.alpha)
+  
+  # fit gender with a dirichlet prior
+  gender.alpha <- 2
+  n.gender <- data.frame(table(calls$Gender))
+  names(n.gender) <- c("gender", "count")
+  gender.draws <- rdirichlet(ndraws, n.gender$count + gender.alpha)
+
+  # fit race with a dirichlet prior
+  race.alpha <- 2
+  n.race <- data.frame(table(calls$Eth))
+  names(n.race) <- c("race", "count")
+  race.draws <- rdirichlet(ndraws, n.race$count + race.alpha)
   
   for (i in 2:ndraws) {
     # Update lambda.phi probabilities and choose a new index
