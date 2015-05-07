@@ -6,7 +6,7 @@ load("./RData/TemperatureData_withMissing.RData")
 
 # Fix nu at 3.5
 nu <- 3.5
-numCores <- 16
+numCores <- 24
 registerDoParallel(cores=numCores)
 time <- system.time(temp.data.nomiss <- foreach(i=1:length(temp.data)) %dopar% {
   for (j in 3:ncol(temp.data[[i]])) {
@@ -34,6 +34,6 @@ time <- system.time(temp.data.nomiss <- foreach(i=1:length(temp.data)) %dopar% {
   temp.data[[i]]
 })
 
-# Took 13 hours to do 576 days with 6 variables
+# Took 8.5 hours to do 576 days with 6 variables on 24 cores
 names(temp.data.nomiss) <- names(temp.data)
 save(temp.data.nomiss, file="./RData/TempDataNoMiss.RData")
