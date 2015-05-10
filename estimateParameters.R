@@ -248,15 +248,12 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     log.MH <- LogLike(lambda.star[i, ], prop.beta) - LogLike(lambda.star[i, ], beta[i-1, ])
     log.MH <- log.MH + LogBetaPrior(prop.beta, beta.var[i], beta.phi.ind) -
       LogBetaPrior(beta[i-1, ], beta.var[i], beta.phi.ind)
-    beta[i, ] <- ifelse(log(runif(1)) < log.MH, prop.beta, beta[i-1, ])
+    beta[i, ] <- if (log(runif(1)) < log.MH) prop.beta else beta[i-1, ]
     setTxtProgressBar(pb, i)
   }
  
-  return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi))
+  return(list(delta=delta, lambda.star=lambda.star, lambda.phi=lambda.phi, beta=beta, beta.phi=beta.phi, race=race.draws, gender=gender.draws, age=age.draws))
 }
 
-Rprof()
-time <- system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
-Rprof(NULL)
-summaryRprof()
+time <- system.time(draws <- MHGibbs(10000, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 save(draws, file="./RData/MHDrawsHI_MAX.RData")
