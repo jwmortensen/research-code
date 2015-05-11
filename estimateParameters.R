@@ -207,23 +207,38 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     lambda.star[i,] <- lambda.star[i-1,]
     for (j in 1:num.blocks) {
       # If enough iterations have been completed, begin using adaptive MCMC techniques
-      if (i < amcmc.it) {
-        prop.var <- 0.01*diag(num.pred.locs/num.blocks)
-      }
-      else {
-        prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
-          (0.01*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
-      }
+      #if (i < amcmc.it) {
+        prop.var <- (1e-10)*diag(num.pred.locs/num.blocks)
+      #}
+      #else {
+      #  prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
+      #    (0.01*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
+      #}
       
-      prop.lstar <- mvrnorm(1, lambda.star[i,close.pts.index[[j]]], prop.var)
+      prop.lstar <- mvrnorm(1, lambda.star[i,close.pts.index[[j]]], prop.var) 
       prop.lstar.vec <- lambda.star[i, ]
       prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar
-      
+
       log.MH <- LogLike(prop.lstar.vec, beta[i-1, ]) - LogLike(lambda.star[i, ], beta[i-1, ]) 
       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, lambda.var[i], lambda.phi.ind) - 
         LogLambdaPrior(lambda.star[i, ], lambda.var[i], lambda.phi.ind)
+      print(log.MH)
+
+      #### DELETE THIS ######
+#       prop.var <- 0.00001*diag(num.pred.locs/num.blocks)
+#       prop.lstar <- mvrnorm(1, lambda.star[close.pts.index[[j]]], prop.var)
+#       prop.lstar.vec <- lambda.star
+#       prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar 
+#       log.MH <- LogLike(prop.lstar.vec, beta) - LogLike(lambda.star, beta) 
+#       print(log.MH)
+#       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, lambda.var, lambda.phi.ind) - 
+#         LogLambdaPrior(lambda.star, lambda.var, lambda.phi.ind)
+#       print(log.MH)
+#       log(runif(1))
+      #######################
       
       if (log(runif(1)) < log.MH) {
+        print("selected new")
         lambda.star[i, close.pts.index[[j]]] <- prop.lstar
       }
       new.amcmc <- AMCMC.update(lambda.star[i, close.pts.index[[j]]], 
