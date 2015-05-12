@@ -86,6 +86,13 @@ for (i in 1:num.blocks) {
   amcmc[[i]]$var <- matrix(0, ncol=length(close.pts.index[[i]]), 
                            nrow=length(close.pts.index[[i]]))
 }
+amcmc.it <- 20
+
+# Adaptive MCMC stuff for beta
+beta.amcmc <- vector("list")
+num.lags <- 4
+beta.amcmc$mn <- matrix(0, ncol=1, nrow=num.lags)
+beta.amcmc$var <- matrix(0, ncol=num.lags, nrow=num.lags)
 amcmc.it <- 100
 
 # Metropolis within Gibbs sampler to estimate lambda and beta coefficients
@@ -93,7 +100,6 @@ amcmc.it <- 100
 MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a, 
                     lambda.var.b, beta.var.start, beta.var.a, beta.var.b) {
   # define variables to use throughout mh.gibbs
-  num.lags <- 4
   vars <- c("HI_MAX","HI_MIN","T2MAX","T2MIN","SW_MIN","SW_MAX")
   postfix <- c(".0",".1",".2",".3")
   # for now, this only evaluates for HI_MAX
@@ -207,13 +213,13 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     lambda.star[i,] <- lambda.star[i-1,]
     for (j in 1:num.blocks) {
       # If enough iterations have been completed, begin using adaptive MCMC techniques
-      #if (i < amcmc.it) {
-        prop.var <- (1e-10)*diag(num.pred.locs/num.blocks)
-      #}
-      #else {
-      #  prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
-      #    (0.01*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
-      #}
+      prop.var.const <- 1e-8
+      if (i < amcmc.it) {
+        prop.var <- prop.var.const*diag(num.pred.locs/num.blocks)
+      } else {
+       prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
+         (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
+      }
       
       prop.lstar <- mvrnorm(1, lambda.star[i,close.pts.index[[j]]], prop.var) 
       prop.lstar.vec <- lambda.star[i, ]
@@ -222,23 +228,8 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
       log.MH <- LogLike(prop.lstar.vec, beta[i-1, ]) - LogLike(lambda.star[i, ], beta[i-1, ]) 
       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, lambda.var[i], lambda.phi.ind) - 
         LogLambdaPrior(lambda.star[i, ], lambda.var[i], lambda.phi.ind)
-      print(log.MH)
-
-      #### DELETE THIS ######
-#       prop.var <- 0.00001*diag(num.pred.locs/num.blocks)
-#       prop.lstar <- mvrnorm(1, lambda.star[close.pts.index[[j]]], prop.var)
-#       prop.lstar.vec <- lambda.star
-#       prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar 
-#       log.MH <- LogLike(prop.lstar.vec, beta) - LogLike(lambda.star, beta) 
-#       print(log.MH)
-#       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, lambda.var, lambda.phi.ind) - 
-#         LogLambdaPrior(lambda.star, lambda.var, lambda.phi.ind)
-#       print(log.MH)
-#       log(runif(1))
-      #######################
       
       if (log(runif(1)) < log.MH) {
-        print("selected new")
         lambda.star[i, close.pts.index[[j]]] <- prop.lstar
       }
       new.amcmc <- AMCMC.update(lambda.star[i, close.pts.index[[j]]], 
@@ -258,12 +249,22 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     beta.var[i] <- 1/rgamma(1, shape=beta.a, rate=beta.b)
     
     # Metropolis hastings to get draws for beta
-    prop.var <- 0.01*diag(num.lags)
+    prop.var.const <- 5e-3
+    if (i < amcmc.it) {
+      prop.var <- prop.var.const*diag(num.lags)
+    } else {
+      prop.var <- (2.4^2/num.lags)*
+        (prop.var.const*diag(num.lags)+beta.amcmc$var)
+    }
     prop.beta <- mvrnorm(1, beta[i-1, ], prop.var)
     log.MH <- LogLike(lambda.star[i, ], prop.beta) - LogLike(lambda.star[i, ], beta[i-1, ])
     log.MH <- log.MH + LogBetaPrior(prop.beta, beta.var[i], beta.phi.ind) -
       LogBetaPrior(beta[i-1, ], beta.var[i], beta.phi.ind)
-    beta[i, ] <- ifelse(log(runif(1)) < log.MH, prop.beta, beta[i-1, ])
+    beta[i, ] <- if(log(runif(1)) < log.MH) prop.beta else beta[i-1,]
+    
+    beta.amcmc <- AMCMC.update(beta[i,], 
+                              beta.amcmc$mn, beta.amcmc$var, i-1)
+    
     setTxtProgressBar(pb, i)
   }
  
@@ -271,7 +272,20 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
 }
 
 Rprof()
-time <- system.time(draws <- MHGibbs(10, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
+time <- system.time(draws <- MHGibbs(50, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
+
+PlotOutput(draws)
+PlotOutput <- function(draws) {
+  plot(draws$lambda.star[,1], type="l")
+  plot(draws$lambda.star[,1054], type="l")
+  plot(draws$lambda.star[,153], type="l")
+  plot(draws$beta[,1], type="l")
+  plot(draws$beta[,2], type="l")
+  plot(draws$beta[,3], type="l")
+  plot(draws$beta[,4], type="l")
+}
+
+PlotOutput(draws)
 summaryRprof()
 save(draws, file="./RData/MHDrawsHI_MAX.RData")
