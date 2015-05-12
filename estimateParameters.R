@@ -86,7 +86,6 @@ for (i in 1:num.blocks) {
   amcmc[[i]]$var <- matrix(0, ncol=length(close.pts.index[[i]]), 
                            nrow=length(close.pts.index[[i]]))
 }
-amcmc.it <- 20
 
 # Adaptive MCMC stuff for beta
 beta.amcmc <- vector("list")
@@ -249,7 +248,7 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
     beta.var[i] <- 1/rgamma(1, shape=beta.a, rate=beta.b)
     
     # Metropolis hastings to get draws for beta
-    prop.var.const <- 5e-3
+    prop.var.const <- 1e-3
     if (i < amcmc.it) {
       prop.var <- prop.var.const*diag(num.lags)
     } else {
@@ -262,8 +261,9 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
       LogBetaPrior(beta[i-1, ], beta.var[i], beta.phi.ind)
     beta[i, ] <- if(log(runif(1)) < log.MH) prop.beta else beta[i-1,]
     
-    beta.amcmc <- AMCMC.update(beta[i,], 
+    new.amcmc <- AMCMC.update(beta[i,], 
                               beta.amcmc$mn, beta.amcmc$var, i-1)
+    beta.amcmc <- new.amcmc
     
     setTxtProgressBar(pb, i)
   }
@@ -274,6 +274,9 @@ MHGibbs <- function(ndraws, lambda.var.start, lambda.var.a,
 Rprof()
 time <- system.time(draws <- MHGibbs(50, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
+save(draws, file="./RData/MHDrawsHI_MAX.RData")
+
+
 
 PlotOutput(draws)
 PlotOutput <- function(draws) {
@@ -288,4 +291,3 @@ PlotOutput <- function(draws) {
 
 PlotOutput(draws)
 summaryRprof()
-save(draws, file="./RData/MHDrawsHI_MAX.RData")
