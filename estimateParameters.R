@@ -1,4 +1,3 @@
-library(parallel)
 library(LatticeKrig)
 library(FNN)
 library(MASS)
@@ -247,7 +246,7 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
 }
 
 Rprof()
-time <- system.time(draws.new <- MHGibbs(5, 2, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
+time <- system.time(draws.new <- MHGibbs(5, 1, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
 Rprof(NULL)
 # save(draws, file="./RData/MHDrawsHI_MAX.RData")
 
