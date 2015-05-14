@@ -1,4 +1,3 @@
-library(parallel)
 library(LatticeKrig)
 library(FNN)
 library(MASS)
@@ -422,7 +421,6 @@ init.lambda <- rep(1/num.pred.locs, num.pred.locs)
 
 
 Rprof()
-time <- system.time(draws.new <- MHGibbs(2, 1, init.lambda, init.beta))
 time <- system.time(draws.new <- MHGibbsC.FuncOnly(2, 1, init.lambda, init.beta))
 Rprof(NULL)
 # save(draws, file="./RData/MHDrawsHI_MAX.RData")
