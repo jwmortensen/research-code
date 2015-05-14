@@ -17,7 +17,7 @@ x.grid <- matrix(hrldas.grid[,2], nrow=125)
 y.grid <- matrix(hrldas.grid[,1], nrow=125)
 
 # Break 1428 grid points into B blocks in order to speed up updating
-num.blocks <- 51  # Chose this because it factors evenly into 1428
+num.blocks <- 21  # Chose this because it factors evenly into 1428
 b.pts <- pp.grid[seq.int(from=1, to=num.pred.locs, length=num.blocks),]
 
 close.pts <- vector("list", length=num.blocks)
@@ -55,6 +55,7 @@ colnames(date.ind) <- c("dates", "date.index")
 loc.date <- cbind(nn.index, dates)
 colnames(loc.date) <- c("location.index","dates")
 merged <- merge(date.ind, loc.date)
+merged.mat <- as.matrix(merged[,2:3])
 
 # Calculate distance between elements for use in Gaussian process
 spaceDist <- rdist(pp.grid)
@@ -93,11 +94,10 @@ beta.amcmc.it <- 1000
 FacToNum <- function(x) {
   as.numeric(as.character(x))
 }
-
+sourceCpp("./estimateParameters.cpp")
 # Metropolis within Gibbs sampler to estimate lambda and beta coefficients
 # Gibbs sampler to estimate sigma2 and lambda
-MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a, 
-                    lambda.var.b, beta.var.start, beta.var.a, beta.var.b) {
+MHGibbsC.FuncOnly <- function(ndraws, thin.factor, init.lambda, init.beta) {
   # define variables to use throughout mh.gibbs
   vars <- c("HI_MAX","HI_MIN","T2MAX","T2MIN","SW_MIN","SW_MAX")
   postfix <- c(".0",".1",".2",".3")
@@ -109,45 +109,21 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
   
   # initialize containers to hold drawsta
   lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
-  lambda.var <- numeric(ndraws)
   beta <- matrix(NA, nrow=ndraws, ncol=num.lags)
-  beta.var <- numeric(ndraws)
   
   # create initial proposal and initialize variables 
   lambda.star[1, ] <- rep(1/num.pred.locs, num.pred.locs)
-  lambda.var[1] <- lambda.var.start
-  beta[1, ] <- c(-0.15, 0.15, 0.08, 0)
-  beta.var[1] <- beta.var.start
-  temp.lstar <- lambda.star[1, ]
-  temp.lvar <- lambda.var[1]
-  temp.beta <- beta[1,]
-  temp.bvar <- beta.var[1]
+  beta[1, ] <- init.beta
+  temp.lstar <- init.lambda
+  temp.lvar <- 0.01
+  lambda.var.a <- 0.01
+  lambda.var.b <- 0.01
+  temp.beta <- init.beta
+  temp.bvar <- 0.1
+  beta.var.a <- 0.01
+  beta.var.b <- 0.01
   
-  
-  # Initialize functions for use in M-H
-  CalcLogLambda <- function(H, lambda.star, beta) {
-    lambda.star + H%*%beta - 
-      log(sum(exp(lambda.star + H%*%beta)))
-  }
-  
-  LogLike <- function(lambda.star, beta) {
-    log.lambda <- lapply(H, CalcLogLambda, 
-                           lambda.star=lambda.star, beta=beta)
-    GetLogLambda <- function(x) {
-      log.lambda[[x["date.index"]]][x["location.index"]]
-    }
-    obs.log.lambda <- apply(merged, 1, GetLogLambda)
-    sum(obs.log.lambda)
-  }
-  
-  LogLambdaPrior <- function(lambda.star, sig2) {
-    -0.5*(t(lambda.star)%*%lambda.inverse.matern%*%lambda.star)/sig2
-  }
-  
-  LogBetaPrior <- function(beta, sig2) {
-    -0.5*(t(beta)%*%beta.inverse.matern%*%beta)/sig2
-  }
-  
+
   # delta is conjugate so we just draw it up front
   delta <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
   
@@ -182,7 +158,6 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
     lambda.b <- lambda.var.b + (1/2)*t(temp.lstar)%*%
       lambda.inverse.matern%*%(temp.lstar) 
     temp.lvar <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
-    if (update) lambda.var[n.draw] <- temp.lvar
 
     # Here we implement metropolis hastings to get draws for lambda
     new.lstar <- temp.lstar
@@ -196,10 +171,163 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
       }
       
+      propL <- function(new.lstar, close.pts.index, prop.var) {
+      
+      prop.lstar <- mvrnorm(1, new.lstar[close.pts.index], prop.var) 
+      prop.lstar.vec <- new.lstar
+      prop.lstar.vec[close.pts.index] <- prop.lstar
+      prop.lstar.vec
+      }
+      log.MH <- LogLike(H, prop.lstar.vec, temp.beta, merged.mat) - LogLike(H, new.lstar, temp.beta, merged.mat) 
+      log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, temp.lvar, lambda.inverse.matern) - 
+        LogLambdaPrior(new.lstar, temp.lvar, lambda.inverse.matern)
+      
+      if (log(runif(1)) < log.MH) {
+        new.lstar[close.pts.index[[j]]] <- prop.lstar
+      }
+      new.amcmc <- AMCMC.update(new.lstar[close.pts.index[[j]]], 
+                                amcmc[[j]]$mn, amcmc[[j]]$var, i-1)
+      amcmc[[j]] <- new.amcmc
+    }
+    temp.lstar <- new.lstar
+    if (update) lambda.star[n.draw, ] <- temp.lstar
+    
+    # Get draws for beta.var using the complete conditional
+    beta.a <- beta.var.a + num.lags/2
+    beta.b <- beta.var.b + (1/2)*t(temp.beta)%*%
+      beta.inverse.matern%*%(temp.beta)
+    temp.bvar <- 1/rgamma(1, shape=beta.a, rate=beta.b)
+    
+    # Metropolis hastings to get draws for beta
+    prop.var.const <- 5e-6
+    if (i < beta.amcmc.it) {
+      prop.var <- prop.var.const*diag(num.lags)
+    } else {
+      prop.var <-  (2.4^2/num.lags)*
+        (prop.var.const*diag(num.lags)+beta.amcmc$var)
+    }
+    prop.beta <- mvrnorm(1, temp.beta, prop.var)
+    log.MH <- LogLike(H, temp.lstar, prop.beta, merged.mat) - LogLike(H, temp.lstar, temp.beta, merged.mat)
+    log.MH <- log.MH + LogBetaPrior(prop.beta, temp.bvar, beta.inverse.matern) -
+      LogBetaPrior(temp.beta, temp.bvar, beta.inverse.matern)
+    temp.beta <- if(log(runif(1)) < log.MH) prop.beta else temp.beta
+    if (update) beta[n.draw, ] <- temp.beta
+
+    new.amcmc <- AMCMC.update(temp.beta, 
+                              beta.amcmc$mn, beta.amcmc$var, i-1)
+    beta.amcmc <- new.amcmc
+
+    setTxtProgressBar(pb, i)
+  }
+ 
+  return(list(delta=delta, lambda.star=lambda.star, beta=beta, race=race.draws, gender=gender.draws, age=age.draws))
+}
+
+# Metropolis within Gibbs sampler to estimate lambda and beta coefficients
+# Gibbs sampler to estimate sigma2 and lambda
+MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
+  # define variables to use throughout mh.gibbs
+  vars <- c("HI_MAX","HI_MIN","T2MAX","T2MIN","SW_MIN","SW_MAX")
+  postfix <- c(".0",".1",".2",".3")
+  # for now, this only evaluates for HI_MAX
+  lagged.vars <- paste(vars[1], postfix, sep="")
+  H <- lapply(temp.data.nomiss, function(x) { as.matrix(x[,lagged.vars]) })
+  pb <- txtProgressBar(min=0, max=ndraws*thin.factor, style=3)
+  n.draw <- ifelse(thin.factor == 1, 1, 0)
+  
+  # initialize containers to hold drawsta
+  lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
+  beta <- matrix(NA, nrow=ndraws, ncol=num.lags)
+  
+  # create initial proposal and initialize variables 
+  lambda.star[1, ] <- rep(1/num.pred.locs, num.pred.locs)
+  beta[1, ] <- init.beta
+  temp.lstar <- init.lambda
+  temp.lvar <- 0.01
+  lambda.var.a <- 0.01
+  lambda.var.b <- 0.01
+  temp.beta <- beta[1, ] 
+  temp.bvar <- 0.1
+  beta.var.a <- 0.01
+  beta.var.b <- 0.01
+
+  # Initialize functions for use in M-H
+    CalcLogLambda <- function(H, lambdaStar, beta) {
+      print(dim(H))
+      print(dim(beta))
+      lambdaStar + H%*%beta - 
+        log(sum(exp(lambdaStar + H%*%beta)))
+    }
+    
+    LogLike <- function(lambda.star, beta) {
+      log.lambda <- lapply(H, CalcLogLambda, 
+                             lambdaStar=lambda.star, beta=beta)
+      GetLogLambda <- function(x) {
+        log.lambda[[x["date.index"]]][x["location.index"]]
+      }
+      obs.log.lambda <- apply(merged, 1, GetLogLambda)
+      sum(obs.log.lambda)
+    }
+  
+    LogLambdaPrior <- function(lambda.star, sig2) {
+      -0.5*(t(lambda.star)%*%lambda.inverse.matern%*%lambda.star)/sig2
+    }
+    
+    LogBetaPrior <- function(beta, sig2) {
+      -0.5*(t(beta)%*%beta.inverse.matern%*%beta)/sig2
+    }
+  
+  # delta is conjugate so we just draw it up front
+  delta <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
+  
+  # fit age with a dirichlet prior, which is conjugate
+  age.alpha <- 2
+  count.ages <- data.frame(table(calls$Age))
+  names(count.ages) <- c("age", "count")
+  count.ages$age <- FacToNum(count.ages$age)
+  count.ages$count <- FacToNum(count.ages$count)
+  n.ages <- merge(data.frame(age=0:100), count.ages, all.x=TRUE)
+  n.ages$count[is.na(n.ages$count)] <- 0
+  age.draws <- rdirichlet(ndraws, n.ages$count + age.alpha)
+  
+  # fit gender with a dirichlet prior
+  gender.alpha <- 2
+  n.gender <- data.frame(table(calls$Gender))
+  names(n.gender) <- c("gender", "count")
+  gender.draws <- rdirichlet(ndraws, n.gender$count + gender.alpha)
+  
+  # fit race with a dirichlet prior
+  race.alpha <- 2
+  n.race <- data.frame(table(calls$Eth))
+  names(n.race) <- c("race", "count")
+  race.draws <- rdirichlet(ndraws, n.race$count + race.alpha)
+  
+  for (i in 2:(ndraws*thin.factor)) {
+    update <- ifelse(i %% thin.factor == 0, TRUE, FALSE)
+    if (update) n.draw <- n.draw + 1
+    
+    # Get draws for lambda.var using the complete conditional
+    lambda.a <- lambda.var.a + num.pred.locs/2
+    lambda.b <- lambda.var.b + (1/2)*t(temp.lstar)%*%
+      lambda.inverse.matern%*%(temp.lstar) 
+    temp.lvar <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
+    
+    # Here we implement metropolis hastings to get draws for lambda
+    new.lstar <- temp.lstar
+    for (j in 1:num.blocks) {
+      # If enough iterations have been completed, begin using adaptive MCMC techniques
+      prop.var.const <- 1e-8
+      if (i < amcmc.it) {
+        prop.var <- prop.var.const*diag(num.pred.locs/num.blocks)
+      } else {
+        prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
+          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
+      }
+      
       prop.lstar <- mvrnorm(1, new.lstar[close.pts.index[[j]]], prop.var) 
       prop.lstar.vec <- new.lstar
       prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar
-
+      
       log.MH <- LogLike(prop.lstar.vec, temp.beta) - LogLike(new.lstar, temp.beta) 
       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, temp.lvar) - 
         LogLambdaPrior(new.lstar, temp.lvar)
@@ -219,7 +347,6 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
     beta.b <- beta.var.b + (1/2)*t(temp.beta)%*%
       beta.inverse.matern%*%(temp.beta)
     temp.bvar <- 1/rgamma(1, shape=beta.a, rate=beta.b)
-    if (update) beta.var[n.draw] <- temp.bvar
     
     # Metropolis hastings to get draws for beta
     prop.var.const <- 5e-6
@@ -235,19 +362,70 @@ MHGibbs <- function(ndraws, thin.factor, lambda.var.start, lambda.var.a,
       LogBetaPrior(temp.beta, temp.bvar)
     temp.beta <- if(log(runif(1)) < log.MH) prop.beta else temp.beta
     if (update) beta[n.draw, ] <- temp.beta
-    
+
+    cat("\n")
+    cat("temp.beta:", class(temp.beta),"\n")
+    print(temp.beta)
+    cat("mn:", class(beta.amcmc$mn), "\n")
+    print(beta.amcmc$mn)
+    cat("var:", class(beta.amcmc$var), "\n")
+    print(beta.amcmc$var)
     new.amcmc <- AMCMC.update(temp.beta, 
                               beta.amcmc$mn, beta.amcmc$var, i-1)
     beta.amcmc <- new.amcmc
-
+    
     setTxtProgressBar(pb, i)
   }
- 
+  
   return(list(delta=delta, lambda.star=lambda.star, beta=beta, race=race.draws, gender=gender.draws, age=age.draws))
 }
 
+MHGibbs.mostlyC <- function(ndraws, thin.factor, init.lambda, init.beta) {
+  # define variables to use throughout mh.gibbs
+  vars <- c("HI_MAX","HI_MIN","T2MAX","T2MIN","SW_MIN","SW_MAX")
+  postfix <- c(".0",".1",".2",".3")
+  # for now, this only evaluates for HI_MAX
+  lagged.vars <- paste(vars[1], postfix, sep="")
+  H <- lapply(temp.data.nomiss, function(x) { as.matrix(x[,lagged.vars]) })
+  
+  # delta is conjugate so we just draw it up front
+  delta <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
+  
+  # fit age with a dirichlet prior, which is conjugate
+  age.alpha <- 2
+  count.ages <- data.frame(table(calls$Age))
+  names(count.ages) <- c("age", "count")
+  count.ages$age <- FacToNum(count.ages$age)
+  count.ages$count <- FacToNum(count.ages$count)
+  n.ages <- merge(data.frame(age=0:100), count.ages, all.x=TRUE)
+  n.ages$count[is.na(n.ages$count)] <- 0
+  age.draws <- rdirichlet(ndraws, n.ages$count + age.alpha)
+  
+  # fit gender with a dirichlet prior
+  gender.alpha <- 2
+  n.gender <- data.frame(table(calls$Gender))
+  names(n.gender) <- c("gender", "count")
+  gender.draws <- rdirichlet(ndraws, n.gender$count + gender.alpha)
+  
+  # fit race with a dirichlet prior
+  race.alpha <- 2
+  n.race <- data.frame(table(calls$Eth))
+  names(n.race) <- c("race", "count")
+  race.draws <- rdirichlet(ndraws, n.race$count + race.alpha)
+  
+  l.and.b <- MHGibbsC(ndraws, thin.factor, H, init.lambda, init.beta, lambda.inverse.matern, beta.inverse.matern, merged.mat, close.pts.index)
+  return(list(delta=delta, lambda.star=l.and.b$lambda.star, beta=l.and.b$beta, race=race.draws, gender=gender.draws, age=age.draws))
+}
+
+init.beta <- c(-0.15, 0.15, 0.08, 0)
+init.lambda <- rep(1/num.pred.locs, num.pred.locs)
+
+
 Rprof()
-time <- system.time(draws.new <- MHGibbs(5, 2, 0.01, 0.01, 0.01, 1, 0.01, 0.01))
+time <- system.time(draws.new <- MHGibbs(2, 1, init.lambda, init.beta))
+time <- system.time(draws.new <- MHGibbsC.FuncOnly(2, 1, init.lambda, init.beta))
 Rprof(NULL)
 # save(draws, file="./RData/MHDrawsHI_MAX.RData")
 
+
+tm <- microbenchmark(MHGibbsC.FuncOnly(100, 1, init.lambda, init.beta), MHGibbs.mostlyC(100, 1, init.lambda, init.beta), times=10)
