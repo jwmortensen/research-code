@@ -1,4 +1,3 @@
-library(parallel)
 library(LatticeKrig)
 library(FNN)
 library(MASS)
@@ -9,17 +8,14 @@ library(RcppArmadillo)
 
 source("AMCMCUpdate.R")
 load("./RData/Spatial911PtPtrn.RData")
-load("./RData/TempDataNoMiss.RData")
+load("./RData/MortalityTempDataNoMiss.RData")
 
 # Variables used throughout
 num.pred.locs <- nrow(pp.grid)
 
-# Create matrix to allow for plotting of values
-x.grid <- matrix(hrldas.grid[,2], nrow=125)
-y.grid <- matrix(hrldas.grid[,1], nrow=125)
-
 # Break 1428 grid points into B blocks in order to speed up updating
 num.blocks <- 21  # Chose this because it factors evenly into 1428
+# Choose points to act as approximate centers for each block
 b.pts <- pp.grid[seq.int(from=1, to=num.pred.locs, length=num.blocks),]
 
 close.pts <- vector("list", length=num.blocks)
@@ -35,20 +31,15 @@ for (i in 1:num.blocks) {
 }
 
 # Get nearest prediction locations for each observed call
-call.locs <- calls[,1:2]
-nn <- get.knnx(pp.grid, call.locs, 1)
+death.locs <- data.frame(lat=death$D_LAT, lon=death$D_LONG)
+nn <- get.knnx(pp.grid, death.locs, 1)
 nn.index <- nn$nn.index
 
-# Get dates where a 911 call occurred
-split.dates <- strsplit(as.character(strptime(calls$DOY, format="%j")), "-")
-months <- numeric(length(split.dates))
-days <- numeric(length(split.dates))
-for (i in 1:length(split.dates)) {
-  months[i] <- split.dates[[i]][2]
-  days[i] <- split.dates[[i]][3]
-}
-dates <- as.Date(paste(calls$Year, months, days), "%Y %m %d")
-unique.dates <- unique(dates)
+# Get dates where a death occurred
+dates <- as.Date(paste(death$Year, death$Month, death$Day), "%Y %m %d")
+unique.dates <- sort(unique(dates))
+# Make sure the order is the same for both
+temp.data.nomiss <- temp.data.nomiss[as.character(unique.dates)]
 date.ind <- cbind(unique.dates, 1:length(unique.dates))
 
 ## Merge to get lambda indices. Note that there are 1384 unique out of 1389 total so 
@@ -57,23 +48,23 @@ colnames(date.ind) <- c("dates", "date.index")
 loc.date <- cbind(nn.index, dates)
 colnames(loc.date) <- c("location.index","dates")
 merged <- merge(date.ind, loc.date)
-merged.mat <- as.matrix(merged[,2:3])
+date.loc.ind <- as.matrix(merged[,2:3])
 
 # Calculate distance between elements for use in Gaussian process
-spaceDist <- rdist(pp.grid)
-timeDist <- rdist(0:3)
+space.dist <- rdist(pp.grid)
+time.dist <- rdist(0:3)
 
 # Fix nu
 nu <- 3.5
 
 # Generate matern matrices for varying values of phi
 lambda.phi <- 500
-lambda.matern <- Matern(spaceDist, alpha=lambda.phi, nu=nu) 
+lambda.matern <- Matern(space.dist, alpha=lambda.phi, nu=nu) 
 lambda.inverse.matern <- solve(lambda.matern)
 
 # Fix this because it wasn't able to estimate it from the data.
 beta.phi <- 5
-beta.matern <- Matern(timeDist, alpha=beta.phi, nu=nu)
+beta.matern <- Matern(time.dist, alpha=beta.phi, nu=nu)
 beta.inverse.matern <- solve(beta.matern)
 
 # Adaptive MCMC stuff
@@ -89,7 +80,7 @@ beta.amcmc <- vector("list")
 num.lags <- 4
 beta.amcmc$mn <- matrix(0, ncol=1, nrow=num.lags)
 beta.amcmc$var <- matrix(0, ncol=num.lags, nrow=num.lags)
-amcmc.it <- 100
+amcmc.it <- 500
 beta.amcmc.it <- 1000
 
 # Functions used throughout
@@ -167,19 +158,19 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
     new.lstar <- temp.lstar
     for (j in 1:num.blocks) {
       # If enough iterations have been completed, begin using adaptive MCMC techniques
-      prop.var.const <- 1e-2
+      prop.var.const <- 1e-3
       if (i < amcmc.it) {
         prop.var <- prop.var.const*diag(num.pred.locs/num.blocks)
       } else {
        prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
       }
-      
+
       prop.lstar <- mvrnorm(1, new.lstar[close.pts.index[[j]]], prop.var) 
       prop.lstar.vec <- new.lstar
       prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar
       
-      log.MH <- LogLike(H, prop.lstar.vec, temp.beta, merged.mat) - LogLike(H, new.lstar, temp.beta, merged.mat) 
+      log.MH <- LogLike(H, prop.lstar.vec, temp.beta, date.loc.ind) - LogLike(H, new.lstar, temp.beta, date.loc.ind) 
       log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, temp.lvar, lambda.inverse.matern) - 
         LogLambdaPrior(new.lstar, temp.lvar, lambda.inverse.matern)
       
@@ -200,7 +191,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
     temp.bvar <- 1/rgamma(1, shape=beta.a, rate=beta.b)
     
     # Metropolis hastings to get draws for beta
-    prop.var.const <- 1e-5
+    prop.var.const <- 1e-6
     if (i < beta.amcmc.it) {
       prop.var <- prop.var.const*diag(num.lags)
     } else {
@@ -208,7 +199,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
         (prop.var.const*diag(num.lags)+beta.amcmc$var)
     }
     prop.beta <- mvrnorm(1, temp.beta, prop.var)
-    log.MH <- LogLike(H, temp.lstar, prop.beta, merged.mat) - LogLike(H, temp.lstar, temp.beta, merged.mat)
+    log.MH <- LogLike(H, temp.lstar, prop.beta, date.loc.ind) - LogLike(H, temp.lstar, temp.beta, date.loc.ind)
     log.MH <- log.MH + LogBetaPrior(prop.beta, temp.bvar, beta.inverse.matern) -
       LogBetaPrior(temp.beta, temp.bvar, beta.inverse.matern)
     temp.beta <- if(log(runif(1)) < log.MH) prop.beta else temp.beta
@@ -224,12 +215,23 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
   return(list(delta=delta, lambda.star=lambda.star, beta=beta, race=race.draws, gender=gender.draws, age=age.draws))
 }
 
-init.beta <- c(-0.15, 0.15, 0.08, 0)
+init.beta <- c(0, 0, 0, 0)
 init.lambda <- rep(log(1/num.pred.locs), num.pred.locs)
 
-
 Rprof()
-time <- system.time(draws <- MHGibbs(100, 1, init.lambda, init.beta))
+time <- system.time(draws2000 <- MHGibbs(2000, 1, init.lambda, init.beta))
 Rprof(NULL)
 # save(draws, file="./RData/MHDrawsHI_MAX.RData")
 
+# draws: 1e-2 1e-5
+pdf("draws.pdf")
+PlotOutput(draws)
+dev.off()
+# draws1: 1e-3 1e-6
+pdf("draws1.pdf")
+PlotOutput(draws1)
+dev.off()
+# draws2: 1e-4 1e-7
+pdf("draws2.pdf")
+PlotOutput(draws2)
+dev.off()
