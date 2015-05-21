@@ -9,6 +9,7 @@ library(RcppArmadillo)
 source("AMCMCUpdate.R")
 load("./RData/Spatial911PtPtrn.RData")
 load("./RData/MortalityTempDataNoMiss.RData")
+death <- read.csv("./RData/cleanDeathData.csv")
 
 # Variables used throughout
 num.pred.locs <- nrow(pp.grid)
@@ -37,7 +38,8 @@ nn.index <- nn$nn.index
 
 # Get dates where a death occurred
 dates <- as.Date(paste(death$Year, death$Month, death$Day), "%Y %m %d")
-unique.dates <- sort(unique(dates))
+dates <- as.Date(paste(dirty.death$Year, dirty.death$Month, dirty.death$Day), "%Y %m %d")
+unique.dates2 <- sort(unique(dates))
 # Make sure the order is the same for both
 temp.data.nomiss <- temp.data.nomiss[as.character(unique.dates)]
 date.ind <- cbind(unique.dates, 1:length(unique.dates))
