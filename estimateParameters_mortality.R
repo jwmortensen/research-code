@@ -38,8 +38,7 @@ nn.index <- nn$nn.index
 
 # Get dates where a death occurred
 dates <- as.Date(paste(death$Year, death$Month, death$Day), "%Y %m %d")
-dates <- as.Date(paste(dirty.death$Year, dirty.death$Month, dirty.death$Day), "%Y %m %d")
-unique.dates2 <- sort(unique(dates))
+unique.dates <- sort(unique(dates))
 # Make sure the order is the same for both
 temp.data.nomiss <- temp.data.nomiss[as.character(unique.dates)]
 date.ind <- cbind(unique.dates, 1:length(unique.dates))
@@ -217,11 +216,11 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
   return(list(delta=delta, lambda.star=lambda.star, beta=beta, race=race.draws, gender=gender.draws, age=age.draws))
 }
 
-init.beta <- c(0, 0, 0, 0)
-init.lambda <- rep(log(1/num.pred.locs), num.pred.locs)
+init.beta <- draws100$beta[100, ]
+init.lambda <- draws100$lambda.star[100, ] #rep(log(1/num.pred.locs), num.pred.locs)
 
 Rprof()
-time <- system.time(draws2000 <- MHGibbs(2000, 1, init.lambda, init.beta))
+time <- microbenchmark(MHGibbs(10, 1, init.lambda, init.beta), times=10)
 Rprof(NULL)
 # save(draws, file="./RData/MHDrawsHI_MAX.RData")
 
