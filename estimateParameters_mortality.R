@@ -9,7 +9,7 @@ library(RcppArmadillo)
 source("AMCMCUpdate.R")
 load("./RData/Spatial911PtPtrn.RData")
 load("./RData/MortalityTempDataNoMiss.RData")
-death <- read.csv("./RData/cleanDeathData.csv")
+death <- read.csv("./RData/cleanDeathData.csv", header=T)
 
 # Variables used throughout
 num.pred.locs <- nrow(pp.grid)
@@ -106,10 +106,14 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
   # initialize containers to hold drawsta
   lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
   beta <- matrix(NA, nrow=ndraws, ncol=num.lags)
+  lambda.var <- numeric(ndraws)
+  beta.var <- numeric(ndraws)
   
   # create initial proposal and initialize variables 
   lambda.star[1, ] <- init.lambda
+  lambda.var[1] <- 0.01
   beta[1, ] <- init.beta
+  beta.var <- 0.1
   temp.lstar <- init.lambda
   temp.lvar <- 0.01
   lambda.var.a <- 0.01
@@ -154,6 +158,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
     lambda.b <- lambda.var.b + (1/2)*t(temp.lstar)%*%
       lambda.inverse.matern%*%(temp.lstar) 
     temp.lvar <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
+    if (update) lambda.var[n.draw] <- temp.lvar
 
     # Here we implement metropolis hastings to get draws for lambda
     new.lstar <- temp.lstar
@@ -190,6 +195,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
     beta.b <- beta.var.b + (1/2)*t(temp.beta)%*%
       beta.inverse.matern%*%(temp.beta)
     temp.bvar <- 1/rgamma(1, shape=beta.a, rate=beta.b)
+    if (update) beta.var[n.draw] <- temp.bvar
     
     # Metropolis hastings to get draws for beta
     prop.var.const <- 1e-6
@@ -213,26 +219,15 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta) {
     setTxtProgressBar(pb, i)
   }
  
-  return(list(delta=delta, lambda.star=lambda.star, beta=beta, race=race.draws, gender=gender.draws, age=age.draws))
+  return(list(delta=delta, lambda.star=lambda.star, lstar.var=lambda.var, beta=beta, beta.var=beta.var, race=race.draws, gender=gender.draws, age=age.draws))
 }
 
+# init.beta <- c(0, 0, 0, 0)
 init.beta <- draws100$beta[100, ]
-init.lambda <- draws100$lambda.star[100, ] #rep(log(1/num.pred.locs), num.pred.locs)
+# init.lambda <- rep(log(1/num.pred.locs), num.pred.locs)
+init.lambda <- draws100$lambda.star[100, ]
 
-Rprof()
-time <- microbenchmark(MHGibbs(10, 1, init.lambda, init.beta), times=10)
-Rprof(NULL)
-# save(draws, file="./RData/MHDrawsHI_MAX.RData")
-
-# draws: 1e-2 1e-5
-pdf("draws.pdf")
-PlotOutput(draws)
-dev.off()
-# draws1: 1e-3 1e-6
-pdf("draws1.pdf")
-PlotOutput(draws1)
-dev.off()
-# draws2: 1e-4 1e-7
-pdf("draws2.pdf")
-PlotOutput(draws2)
-dev.off()
+# Rprof()
+time <- system.time(draws.mortality <- MHGibbs(2500, 50, init.lambda, init.beta))
+# Rprof(NULL)
+save(draws.mortality, file="./RData/MHDrawsHI_MAX_mortality_2015_05_22.RData")

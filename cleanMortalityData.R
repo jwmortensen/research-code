@@ -1,7 +1,7 @@
 death <- read.csv("../data/deathData.csv", header=T)
 ### Eliminate unused months
 death <- death[which(4 < death$Month & death$Month < 10),]
-load("./RData//Spatial911PtPtrn.RData")
+load("./RData/Spatial911PtPtrn.RData")
 
 ### Delete unused variables
 death$p99_09_ID <- NULL
@@ -37,11 +37,9 @@ death <- death[which(substr(death$D_UNDCAU, 1, 1) == "I" |
                      substr(death$D_UNDCAU, 1, 1) == "N" |
                      substr(death$D_UNDCAU, 1, 1) == "R"), ]
 
-death <- read.csv("../data/deathData.csv", header=T)
+
 death.spat <- SpatialPoints(cbind(death$D_LONG, death$D_LAT))
-cont.ind <- ifelse(rowSums(gContains(houston, death.spat, byid=TRUE)) > 0, TRUE, FALSE)
+microbenchmark(cont.ind <- ifelse(rowSums(gContains(houston, death.spat, byid=TRUE)) > 0, TRUE, FALSE), times=10)
 death <- death[cont.ind, ]
-plot(death$D_LONG, death$D_LAT)
-plot(houston, add=T)
 
 write.csv(death, "./RData/cleanDeathData.csv", row.names=FALSE)
