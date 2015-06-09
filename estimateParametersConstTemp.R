@@ -215,7 +215,7 @@ DIC <- function(draws) {
 }
 
 temp.vars <- c("HI_MAX", "HI_MIN", "T2MAX", "T2MIN", "SW_MAX", "SW_MIN")
-draws <- lapply(temp.vars, function(x) { MHGibbs(100, 1, init.lambda, init.beta, x) })
+draws <- lapply(temp.vars, function(x) { MHGibbs(100, 50, init.lambda, init.beta, x) })
 DIC.vals <- lapply(draws, DIC)
 names(draws) <- temp.vars
 names(DIC.vals) <- temp.vars
