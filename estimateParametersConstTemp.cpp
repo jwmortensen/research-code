@@ -36,8 +36,8 @@ double LogLike(const arma::colvec& lambdaStar, const arma::colvec& Nk) {
 
 // [[Rcpp::export]]
 double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern, 
-  const arma::mat& temps, arma::colvec& beta) {
-  return as_scalar(-0.5 * ((lambdaStar - temps * beta).t() * lambdaInverseMatern * (lambdaStar - temps * beta)) / sig2);
+  const arma::colvec& mean) {
+  return as_scalar(-0.5 * ((lambdaStar - mean).t() * lambdaInverseMatern * (lambdaStar - mean)) / sig2);
 }
 
 // [[Rcpp::export]]

@@ -9,7 +9,9 @@ library(RcppArmadillo)
 
 load("./RData/Spatial911PtPtrn.RData")
 load("./RData/AllTempData.RData")
+load("./RData/InterceptData.RData")
 sourceCpp("./estimateParametersConstTemp.cpp")
+death <- read.csv("./RData/cleanDeathData.csv", header=T)
 
 # Variables used throughout
 num.pred.locs <- nrow(pp.grid)
@@ -37,35 +39,20 @@ for (i in 1:num.blocks) {
 
 # Get nearest prediction locations for each observed call
 call.locs <- calls[,1:2]
-nn <- get.knnx(pp.grid, call.locs, 1)
-nn.index <- nn$nn.index
-Nk <- rep(0, num.pred.locs)
-for (i in nn.index) Nk[i] <- Nk[i] + 1
+call.nn <- get.knnx(pp.grid, call.locs, 1)
+call.index <- call.nn$nn.index
+Nk.911 <- numeric(num.pred.locs)
+for (i in call.index) Nk.911[i] <- Nk.911[i] + 1
 
-
-# Get dates where a 911 call occurred
-split.dates <- strsplit(as.character(strptime(calls$DOY, format="%j")), "-")
-months <- numeric(length(split.dates))
-days <- numeric(length(split.dates))
-for (i in 1:length(split.dates)) {
-  months[i] <- split.dates[[i]][2]
-  days[i] <- split.dates[[i]][3]
-}
-dates <- as.Date(paste(calls$Year, months, days), "%Y %m %d")
-unique.dates <- unique(dates)
-date.ind <- cbind(unique.dates, 1:length(unique.dates))
-
-## Merge to get lambda indices. Note that there are 1384 unique out of 1389 total so 
-## there is little to be gained from combining them.
-colnames(date.ind) <- c("dates", "date.index")
-loc.date <- cbind(nn.index, dates)
-colnames(loc.date) <- c("location.index","dates")
-merged <- merge(date.ind, loc.date)
-merged.mat <- as.matrix(merged[,2:3])
+# Get nearest prediction locations for each death
+death.locs <- data.frame(lat=death$D_LAT, lon=death$D_LONG)
+death.nn <- get.knnx(pp.grid, death.locs, 1)
+death.index <- death.nn$nn.index
+Nk.death <- numeric(num.pred.locs)
+for (i in death.index) Nk.death[i] <- Nk.death[i] + 1
 
 # Calculate distance between elements for use in Gaussian process
 space.dist <- rdist(pp.grid)
-time.dist <- rdist(0:3)
 
 # Fix nu
 nu <- 3.5
@@ -76,11 +63,15 @@ lambda.matern <- Matern(space.dist, alpha=lambda.phi, nu=nu)
 lambda.inverse.matern <- solve(lambda.matern)
 
 # Adaptive MCMC stuff
-amcmc <- vector("list", length=num.blocks)
+amcmc.911 <- vector("list", length=num.blocks)
+amcmc.death <- vector("list", length=num.blocks)
 for (i in 1:num.blocks) {
-  amcmc[[i]]$mn <- matrix(0, ncol=1, nrow=length(close.pts.index[[i]]))
-  amcmc[[i]]$var <- matrix(0, ncol=length(close.pts.index[[i]]), 
+  amcmc.911[[i]]$mn <- matrix(0, ncol=1, nrow=length(close.pts.index[[i]]))
+  amcmc.911[[i]]$var <- matrix(0, ncol=length(close.pts.index[[i]]), 
                            nrow=length(close.pts.index[[i]]))
+  amcmc.death[[i]]$mn <- matrix(0, ncol=1, nrow=length(close.pts.index[[i]]))
+  amcmc.death[[i]]$var <- matrix(0, ncol=length(close.pts.index[[i]]), 
+                               nrow=length(close.pts.index[[i]]))
 }
 amcmc.it <- 100
 
@@ -91,42 +82,41 @@ D <- function(lambda.star) {
 
 # Metropolis within Gibbs sampler to estimate lambda and beta coefficients
 # Gibbs sampler to estimate sigma2 and lambda
-MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.var) {
+MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
   # define variables to use throughout mh.gibbs
-  vars <- c("HI_MAX","HI_MIN","T2MAX","T2MIN","SW_MIN","SW_MAX")
-  var.index <- switch(temp.var,
-                      HI_MAX = 1,
-                      HI_MIN = 2,
-                      T2MAX = 3,
-                      T2MIN = 4,
-                      SW_MIN = 5,
-                      SW_MAX = 6)
-  # for now, this only evaluates for HI_MAX
-  H <- lapply(temp.data.nomiss, function(x) { as.matrix(x[,vars[var.index]]) })
-  temp.means <- apply(sapply(H, function(x) { apply(x, 1, mean) }), 1, mean)
-  temp.means <- cbind(1, temp.means)
+  temp.var <- switch(temp.index,
+                      "1" = "HI_MAX",
+                      "2" = "HI_MIN",
+                      "3" = "T2MAX",
+                      "4" = "T2MIN",
+                      "5" = "SW_MIN",
+                      "6" = "SW_MAX")
+  intercept <- as.matrix(cbind(1, intercept.df[c(temp.var, "Population", "PercentOver65")]))
 
   pb <- txtProgressBar(min=0, max=ndraws*thin.factor, style=3)
   n <- ifelse(thin.factor == 1, 1, 0)
   
   # initialize containers to hold drawsta
-  lambda.star <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
-  lvar <- numeric(ndraws)
-  beta <- matrix(NA, nrow=ndraws, ncol=2)
+  lstar.mu <- lstar.911 <- lstar.death <- matrix(NA, nrow=ndraws, ncol=num.pred.locs)
+  lvar.mu <- lvar.911 <- lvar.death <- numeric(ndraws)
+  beta <- matrix(NA, nrow=ndraws, ncol=ncol(intercept))
   d.vals <- numeric(ndraws)
 #   bvar <- numeric(ndraws)
   
   # create initial proposal and initialize variables 
-  lambda.star[1, ] <- temp.lstar <- init.lambda
+  lstar.mu[1, ] <- temp.lstar.mu <- init.lambda
+  lstar.911[1, ] <- temp.lstar.911 <- init.lambda
+  lstar.death[1, ] <- temp.lstar.death <- init.lambda
   beta[1, ] <- temp.beta <- init.beta
-  d.vals[1] <- D(temp.lstar)
-  temp.lvar <- 0.01
+#   d.vals[1] <- D(temp.lstar)
+  temp.lvar.mu <- temp.lvar.911 <- temp.lvar.death <- 0.01
   lambda.var.a <- 0.01
   lambda.var.b <- 0.01
   
   
   # delta is conjugate so we just draw it up front
-  delta <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
+  delta.911 <- rgamma(ndraws, shape=nrow(calls)+0.001, rate=1.001)
+  delta.death <- rgamma(ndraws, shape=nrow(death)+0.001, rate=1.001)
   
   # fit age with a dirichlet prior, which is conjugate
   age.alpha <- 2
@@ -151,62 +141,128 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.var) {
   race.draws <- rdirichlet(ndraws, n.race$count + race.alpha)
   
   for (i in 2:(ndraws*thin.factor)) {
-    # Get draws for lambda.var using the complete conditional
+    # Get draws for lvar.911 using the complete conditional
     lambda.a <- lambda.var.a + num.pred.locs/2
-    lambda.b <- lambda.var.b + (1/2)*t(temp.lstar)%*%
-      lambda.inverse.matern%*%(temp.lstar) 
-    temp.lvar <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
+    lambda.b <- lambda.var.b + (1/2)*t(temp.lstar.911)%*%
+      lambda.inverse.matern%*%(temp.lstar.911) 
+    temp.lvar.911 <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
     
-    # Here we implement metropolis hastings to get draws for lambda
-    new.lstar <- temp.lstar
+    # Here we implement metropolis hastings to get draws for lstar.911
+    new.lstar.911 <- temp.lstar.911
     for (j in 1:num.blocks) {
       # If enough iterations have been completed, begin using adaptive MCMC techniques
-      prop.var.const <- 5e-2
+      prop.var.const <- 1e-3
       if (i < amcmc.it) {
         prop.var <- prop.var.const*diag(num.pred.locs/num.blocks)
       } else {
         prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
-          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc[[j]]$var)
+          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc.911[[j]]$var)
       }
       
-      prop.lstar <- mvrnorm(1, new.lstar[close.pts.index[[j]]], prop.var) 
-      prop.lstar.vec <- new.lstar
-      prop.lstar.vec[close.pts.index[[j]]] <- prop.lstar
+      prop.lstar.911 <- mvrnorm(1, new.lstar.911[close.pts.index[[j]]], prop.var) 
+      prop.lstar.vec.911 <- new.lstar.911
+      prop.lstar.vec.911[close.pts.index[[j]]] <- prop.lstar.911
       
-      log.MH <- LogLike(prop.lstar.vec, Nk) - LogLike(new.lstar, Nk) 
-      log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec, temp.lvar, lambda.inverse.matern, temp.means, temp.beta) - 
-        LogLambdaPrior(new.lstar, temp.lvar, lambda.inverse.matern, temp.means, temp.beta)
+      log.MH <- LogLike(prop.lstar.vec.911, Nk.911) - LogLike(new.lstar.911, Nk.911) 
+      log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec.911, temp.lvar.911, lambda.inverse.matern, temp.lstar.mu) - 
+        LogLambdaPrior(new.lstar.911, temp.lvar.911, lambda.inverse.matern, temp.lstar.mu)
       
       if (log(runif(1)) < log.MH) {
-        new.lstar[close.pts.index[[j]]] <- prop.lstar
+        new.lstar.911[close.pts.index[[j]]] <- prop.lstar.911
       }
-      new.amcmc <- amcmcUpdate(new.lstar[close.pts.index[[j]]], 
-                                amcmc[[j]]$mn, amcmc[[j]]$var, i-1)
-      amcmc[[j]] <- new.amcmc
+      new.amcmc <- amcmcUpdate(new.lstar.911[close.pts.index[[j]]], 
+                                amcmc.911[[j]]$mn, amcmc.911[[j]]$var, i-1)
+      amcmc.911[[j]] <- new.amcmc
     }
-    temp.lstar <- new.lstar
+    temp.lstar.911 <- new.lstar.911
     
-    # Metropolis hastings to get draws for beta
+    # Get draws for lvar.death using the complete conditional
+    lambda.a <- lambda.var.a + num.pred.locs/2
+    lambda.b <- lambda.var.b + (1/2)*t(temp.lstar.death)%*%
+      lambda.inverse.matern%*%(temp.lstar.death) 
+    temp.lvar.death <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
+    
+    # Here we implement metropolis hastings to get draws for lstar.death
+    new.lstar.death <- temp.lstar.death
+    for (j in 1:num.blocks) {
+      # If enough iterations have been completed, begin using adaptive MCMC techniques
+      prop.var.const <- 1e-3
+      if (i < amcmc.it) {
+        prop.var <- prop.var.const*diag(num.pred.locs/num.blocks)
+      } else {
+        prop.var <- (2.4^2/(num.pred.locs/num.blocks))*
+          (prop.var.const*diag(num.pred.locs/num.blocks)+amcmc.911[[j]]$var)
+      }
+      
+      prop.lstar.death <- mvrnorm(1, new.lstar.death[close.pts.index[[j]]], prop.var) 
+      prop.lstar.vec.death <- new.lstar.death
+      prop.lstar.vec.death[close.pts.index[[j]]] <- prop.lstar.death
+      
+      log.MH <- LogLike(prop.lstar.vec.death, Nk.death) - LogLike(new.lstar.death, Nk.death) 
+      log.MH <- log.MH + LogLambdaPrior(prop.lstar.vec.death, temp.lvar.death, lambda.inverse.matern, temp.lstar.mu) - 
+        LogLambdaPrior(new.lstar.death, temp.lvar.death, lambda.inverse.matern, temp.lstar.mu)
+      
+      if (log(runif(1)) < log.MH) {
+        new.lstar.death[close.pts.index[[j]]] <- prop.lstar.death
+      }
+      new.amcmc <- amcmcUpdate(new.lstar.death[close.pts.index[[j]]], 
+                               amcmc.death[[j]]$mn, amcmc.death[[j]]$var, i-1)
+      amcmc.death[[j]] <- new.amcmc
+    }
+    temp.lstar.death <- new.lstar.death
+    
+    # Get draws for lvar.mu using the complete conditional
+    lambda.a <- lambda.var.a + num.pred.locs/2
+    lambda.b <- lambda.var.b + (1/2)*t(temp.lstar.mu)%*%
+      lambda.inverse.matern%*%(temp.lstar.mu) 
+    temp.lvar.mu <- 1/rgamma(1, shape=lambda.a, rate=lambda.b)
+    
+    # Complete conditional to get draws for lstar.mu
+    sum.inv.var <- (1 / temp.lvar.mu + 1 / temp.lvar.911 + 1 / temp.lvar.death)^(-1)
+    mu.var <- lambda.matern * sum.inv.var
+    mu.mean <- sum.inv.var * 
+      (1 / temp.lvar.mu * intercept %*% temp.beta  +
+       1 / temp.lvar.911 * temp.lstar.911 + 
+       1 / temp.lvar.death * temp.lstar.death)
+    temp.lstar.mu <- t(mvrnormC(1, mu.mean, mu.var))
+    
+    # Complete conditional to get draws for beta
     s2 <- 100
-    beta.var <- solve(1/s2 * diag(2) + t(temp.means)%*%lambda.inverse.matern%*%temp.means)
-    beta.mean <- (1/temp.lvar)*beta.var%*%t(temp.means)%*%lambda.inverse.matern%*%temp.lstar
+    beta.var <- solve(1/s2 * diag(ncol(intercept)) + t(intercept)%*%lambda.inverse.matern%*%intercept)
+    beta.mean <- (1/temp.lvar.mu)*beta.var%*%t(intercept)%*%lambda.inverse.matern%*%temp.lstar.mu
     temp.beta <- mvrnorm(1, beta.mean, beta.var)
     
     if (i %% thin.factor == 0) {
       n <- n + 1
-      lvar[n] <- temp.lvar
-      lambda.star[n, ] <- temp.lstar
+      lvar.911[n] <- temp.lvar.911
+      lstar.911[n, ] <- temp.lstar.911
+      lvar.death[n] <- temp.lvar.death
+      lstar.death[n, ] <- temp.lstar.death
+      lvar.mu[n] <- temp.lvar.mu
+      lstar.mu[n, ] <- temp.lstar.mu
       beta[n, ] <- temp.beta
-      d.vals[n] <- D(temp.lstar)
+#       d.vals[n] <- D(temp.lstar.mu)
     }
     
     setTxtProgressBar(pb, i)
   }
   
-  return(list(delta=delta, lambda.star=lambda.star, lstar.var=lvar, beta=beta, race=race.draws, gender=gender.draws, age=age.draws, d.vals=d.vals))
+  return(list(delta.911 = delta.911, 
+              lstar.911 = lstar.911, 
+              lvar.911 = lvar.911, 
+              delta.death = delta.death,
+              lstar.death = lstar.death, 
+              lvar.death = lvar.death, 
+              lstar.mu = lstar.mu, 
+              lvar.mu = lvar.mu, 
+              beta = beta, 
+              race=race.draws, 
+              gender=gender.draws, 
+              age=age.draws, 
+              d.vals = d.vals))
 }
 
-init.beta <- c(-0.2,0)
+init.beta <- c(0,0,0,0)
 init.lambda <- rep(log(1/num.pred.locs), num.pred.locs)
 
 DIC <- function(draws) {
@@ -214,7 +270,12 @@ DIC <- function(draws) {
   2 * mean(draws$d.vals) - D(lambda.star)
 }
 
-temp.vars <- c("HI_MAX", "HI_MIN", "T2MAX", "T2MIN", "SW_MAX", "SW_MIN")
+Rprof()
+tm1 <- system.time(draws <- MHGibbs(10, 50, init.lambda, init.beta, 1))
+PlotOutput(draws3)
+Rprof(NULL)
+summaryRprof()
+PlotOutput(draws)
 draws <- lapply(temp.vars, function(x) { MHGibbs(100, 50, init.lambda, init.beta, x) })
 DIC.vals <- lapply(draws, DIC)
 names(draws) <- temp.vars
