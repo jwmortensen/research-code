@@ -35,9 +35,14 @@ double LogLike(const arma::colvec& lambdaStar, const arma::colvec& Nk) {
 }
 
 // [[Rcpp::export]]
-double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern, 
-  const arma::colvec& mean) {
-  return as_scalar(-0.5 * ((lambdaStar - mean).t() * lambdaInverseMatern * (lambdaStar - mean)) / sig2);
+double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern) {
+  return as_scalar(-0.5 * ((lambdaStar).t() * lambdaInverseMatern * (lambdaStar)) / sig2);
+}
+
+// [[Rcpp::export]]
+double LogLambdaMuPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern,
+  const arma::mat& intercept, const arma::colvec& beta) {
+    return as_scalar(-0.5 * ((lambdaStar - intercept * beta).t() * lambdaInverseMatern * (lambdaStar - intercept * beta)) / sig2);
 }
 
 // [[Rcpp::export]]
@@ -46,6 +51,14 @@ NumericVector mvrnormC(int n, const arma::vec& mu, const arma::mat& sigma) {
   arma::mat Y = arma::randn(n, ncols);
   return wrap(arma::repmat(mu, 1, n).t() + Y * arma::chol(sigma));
 }
+
+// [[Rcpp::export]]
+NumericVector mvrnormNoChol(int n, const arma::vec& mu, const arma::mat& cholSigma) {
+  int ncols = cholSigma.n_cols;
+  arma::mat Y = arma::randn(n, ncols);
+  return wrap(arma::repmat(mu, 1, n).t() + Y * cholSigma);
+}
+
 
 // [[Rcpp::export]]
 void proposeLambda(arma::colvec& propLambda, const arma::colvec& currLambda, const IntegerVector& ptsIndex, const arma::mat& propVar) {
