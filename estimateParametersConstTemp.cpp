@@ -35,6 +35,18 @@ double LogLike(const arma::colvec& lambdaStar, const arma::colvec& Nk) {
 }
 
 // [[Rcpp::export]]
+arma::colvec CalcLogLambdaGroup(const arma::colvec& lambdaStar, const arma::colvec& lambdaMu) {
+  return lambdaStar + lambdaMu - log(sum(exp(lambdaStar + lambdaMu)));
+}
+
+
+// [[Rcpp::export]]
+double LogLikeGroup(const arma::colvec& lambdaStar, const arma::colvec& lambdaMu, const arma::colvec& Nk) {
+  arma::colvec logLambdas = CalcLogLambdaGroup(lambdaStar, lambdaMu);
+  return sum(Nk % logLambdas);
+}
+
+// [[Rcpp::export]]
 double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern) {
   return as_scalar(-0.5 * ((lambdaStar).t() * lambdaInverseMatern * (lambdaStar)) / sig2);
 }
@@ -44,6 +56,7 @@ double LogLambdaMuPrior(const arma::colvec& lambdaStar, const double& sig2, cons
   const arma::mat& intercept, const arma::colvec& beta) {
     return as_scalar(-0.5 * ((lambdaStar - intercept * beta).t() * lambdaInverseMatern * (lambdaStar - intercept * beta)) / sig2);
 }
+
 
 // [[Rcpp::export]]
 NumericVector mvrnormC(int n, const arma::vec& mu, const arma::mat& sigma) {
