@@ -52,6 +52,11 @@ double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const 
 }
 
 // [[Rcpp::export]]
+double LogLambdaPriorNoMatern(const arma::colvec& lambdaStar, const double& sig2) {
+  return as_scalar(-0.5 * ((lambdaStar).t() * (lambdaStar)) / sig2);
+}
+
+// [[Rcpp::export]]
 double LogLambdaMuPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern,
   const arma::mat& intercept, const arma::colvec& beta) {
     return as_scalar(-0.5 * ((lambdaStar - intercept * beta).t() * lambdaInverseMatern * (lambdaStar - intercept * beta)) / sig2);

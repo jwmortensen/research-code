@@ -82,7 +82,7 @@ for (i in 1:num.blocks) {
 }
 amcmc.it <- 100
 
-D <- function(lambda.star) {
+D <- function(lambda.star, Nk) {
   -2 * LogLike(lambda.star, Nk)
 }
 
@@ -91,7 +91,7 @@ DIC <- function(draws) {
   2 * mean(draws$d.vals) - D(lambda.star)
 }
 
-MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
+MHGibbs <- function(ndraws, thin.factor, init.lstar.911, init.lstar.death, init.lstar.mu, init.beta, temp.index) {
   # define variables to use throughout mh.gibbs
   temp.var <- switch(temp.index,
                      "1" = "HI_MAX",
@@ -100,7 +100,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
                      "4" = "T2MIN",
                      "5" = "SW_MIN",
                      "6" = "SW_MAX")
-  intercept <- as.matrix(cbind(1, intercept.df[c(temp.var, "Population", "PercentOver65")]))
+  intercept <- as.matrix(cbind(1, intercept.df[c(temp.var, "Population", "PercentOver65", "NOAC")]))
   
   pb <- txtProgressBar(min=0, max=ndraws*thin.factor, style=3)
   n <- ifelse(thin.factor == 1, 1, 0)
@@ -113,13 +113,12 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
   #   bvar <- numeric(ndraws)
   
   # create initial proposal and initialize variables 
-  lstar.mu[1, ] <- temp.lstar.mu <- init.lambda
-  lstar.911[1, ] <- temp.lstar.911 <- init.lambda #- log(1/num.pred.locs)
-  lstar.death[1, ] <- temp.lstar.death <- init.lambda #- log(1/num.pred.locs)
+  lstar.mu[1, ] <- temp.lstar.mu <- init.lstar.mu
+  lstar.911[1, ] <- temp.lstar.911 <- init.lstar.911
+  lstar.death[1, ] <- temp.lstar.death <- init.lstar.death 
   beta[1, ] <- temp.beta <- init.beta
   #   d.vals[1] <- D(temp.lstar)
   temp.lvar.mu <- temp.lvar.911 <- temp.lvar.death <- 50
-#   temp.lvar.mu <- 5000
   lambda.var.a <- 2
   lambda.var.b <- 1
   
@@ -271,7 +270,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
       lvar.mu[n] <- temp.lvar.mu
       lstar.mu[n, ] <- temp.lstar.mu
       beta[n, ] <- temp.beta
-      d.vals[n] <- D(temp.lstar.mu)
+      d.vals[n] <- D(temp.lstar.mu, Nk.mu)
     }
     
     setTxtProgressBar(pb, i)
@@ -292,9 +291,15 @@ MHGibbs <- function(ndraws, thin.factor, init.lambda, init.beta, temp.index) {
               d.vals = d.vals))
 }
 
-init.beta <- c(0,0,0,0)
-init.lambda <- rep(log(1/num.pred.locs), num.pred.locs)
+init.beta <- rep(0, 5)
+init.lstar.911 <- draws.new2$lstar.911[500, ]
+init.lstar.death <- draws.new2$lstar.death[500, ]
+init.lstar.mu <- draws.new2$lstar.mu[500, ]
 
+prop.var.const.death <- 2e-4
+prop.var.const.911 <- 1e-3
+prop.var.const.mu <- 2e-4
 
+tm <- system.time(draws.new4 <- MHGibbs(100, 1, init.lstar.911, init.lstar.death, init.lstar.mu, init.beta, 2))
 
 
