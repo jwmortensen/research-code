@@ -22,11 +22,17 @@ List amcmcUpdate(const arma::colvec& draw, const arma::colvec& curMn, const arma
 }
 
 // [[Rcpp::export]]
-arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
-                           const arma::colvec& lambdaMu, 
+arma::colvec CalcLogLambda(const arma::colvec& lambdaStar, 
                            const arma::colvec& E) {
-  return (log(E) + lambdaStar + lambdaMu) - log(sum(E % exp(lambdaStar + lambdaMu)));
+  return (log(E) + lambdaStar) - log(sum(E % exp(lambdaStar)));
 }
+
+
+//arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
+//                           const arma::colvec& lambdaMu, 
+//                           const arma::colvec& E) {
+//  return (log(E) + lambdaStar + lambdaMu) - log(sum(E % exp(lambdaStar + lambdaMu)));
+//}
 
 
 //arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
@@ -41,12 +47,20 @@ arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
 //  arma::colvec logLambdas = CalcLogLambda(lambdaStar, lambdaMu);
 //  return sum(Nk % logLambdas);
 //}
+
+//double LogLike(const arma::colvec& lambdaStar, 
+//               const arma::colvec& lambdaMu,  
+//               const arma::colvec& Nk,
+//               const arma::colvec& E) {
+//  arma::colvec logLambdas = CalcLogLambda(lambdaStar, lambdaMu, E);
+//  return sum(Nk % logLambdas);
+//}
+
 // [[Rcpp::export]]
 double LogLike(const arma::colvec& lambdaStar, 
-               const arma::colvec& lambdaMu,  
                const arma::colvec& Nk,
                const arma::colvec& E) {
-  arma::colvec logLambdas = CalcLogLambda(lambdaStar, lambdaMu, E);
+  arma::colvec logLambdas = CalcLogLambda(lambdaStar, E);
   return sum(Nk % logLambdas);
 }
 
