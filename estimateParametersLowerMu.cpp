@@ -22,51 +22,31 @@ List amcmcUpdate(const arma::colvec& draw, const arma::colvec& curMn, const arma
 }
 
 // [[Rcpp::export]]
-arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
-                           const arma::colvec& lambdaMu, 
+arma::colvec CalcLogLambda(const arma::colvec& lambdaStar, 
                            const arma::colvec& E) {
-  return (log(E) + lambdaStar + lambdaMu) - log(sum(E % exp(lambdaStar + lambdaMu)));
+  return (log(E) + lambdaStar) - log(sum(E % exp(lambdaStar)));
 }
-
-
-//arma::colvec CalcLogLambda(const arma::colvec& lambdaStar,
-//                           const arma::colvec& lambdaMu) {
-//  return lambdaStar + lambdaMu - log(sum(exp(lambdaStar + lambdaMu)));
-//}
-
-
-//double LogLike(const arma::colvec& lambdaStar, 
-//               const arma::colvec& lambdaMu, 
-//               const arma::colvec& Nk) {
-//  arma::colvec logLambdas = CalcLogLambda(lambdaStar, lambdaMu);
-//  return sum(Nk % logLambdas);
-//}
 
 // [[Rcpp::export]]
 double LogLike(const arma::colvec& lambdaStar, 
-               const arma::colvec& lambdaMu,  
                const arma::colvec& Nk,
                const arma::colvec& E) {
-  arma::colvec logLambdas = CalcLogLambda(lambdaStar, lambdaMu, E);
+  arma::colvec logLambdas = CalcLogLambda(lambdaStar, E);
   return sum(Nk % logLambdas);
 }
 
-//double LogLike(const arma::colvec& lambdaStar, 
-//               const arma::colvec& Nk,
-//               const arma::colvec& E) {
-//  arma::colvec logLambdas = CalcLogLambda(lambdaStar, E);
-//  return sum(Nk % logLambdas);
-//}
-
-
 // [[Rcpp::export]]
-double LogLambdaPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern) {
-  return as_scalar(-0.5 * ((lambdaStar).t() * lambdaInverseMatern * (lambdaStar)) / sig2);
+double LogLambdaPrior(const arma::colvec& lambdaStar, 
+                      const arma::colvec& lstarMu, 
+                      const double& sig2, 
+                      const arma::mat& lambdaInverseMatern) {
+  return as_scalar(-0.5 * ((lambdaStar - lstarMu).t() * lambdaInverseMatern * (lambdaStar - lstarMu)) / sig2);
 }
 
-
 // [[Rcpp::export]]
-double LogLambdaMuPrior(const arma::colvec& lambdaStar, const double& sig2, const arma::mat& lambdaInverseMatern,
+double LogLambdaMuPrior(const arma::colvec& lambdaStar, 
+                        const double& sig2, 
+                        const arma::mat& lambdaInverseMatern,
   const arma::mat& intercept, const arma::colvec& beta) {
     return as_scalar(-0.5 * ((lambdaStar - intercept * beta).t() * lambdaInverseMatern * (lambdaStar - intercept * beta)) / sig2);
 }
