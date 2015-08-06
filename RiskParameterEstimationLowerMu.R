@@ -212,7 +212,7 @@ MHGibbs <- function(ndraws, thin.factor, init.lstar.911, init.lstar.death, init.
     new.lstar.death <- temp.lstar.death
     for (j in 1:num.blocks) {
       # If enough iterations have been completed, begin using adaptive MCMC techniques
-      prop.var.const <- 2e-4
+      prop.var.const.death <- 2e-4
       if (i < amcmc.it) {
         prop.var <- prop.var.const.death*diag(num.pred.locs/num.blocks)
       } else {
@@ -320,15 +320,8 @@ init.lstar.911 <- log((0.001 + Nk.911) / sum(Nk.911))
 init.lstar.death <- log((0.001 + Nk.death) / sum(Nk.death))
 init.lstar.mu <- log((0.001 + Nk.mu) / sum(Nk.mu))
 
-init.lstar.911 <- draws2$lstar.911[1000, ]
-init.lstar.death <- draws2$lstar.death[1000, ]
-init.lstar.mu <- draws2$lstar.mu[1000, ]
-
-prop.var.const.death <- 2e-4
-prop.var.const.911 <- 1e-3
-prop.var.const.mu <- 2e-4
-
-tm <- system.time(draws2 <- MHGibbs(1000, 1, init.lstar.911, init.lstar.death, init.lstar.mu, init.beta, 2))
+tm <- system.time(draws.lower.mu <- MHGibbs(5000, 50, init.lstar.911, init.lstar.death, init.lstar.mu, init.beta, 2))
+save(draws.lower.mu, file="/RData/drawsLowerMu.RData")
 
 calcLambda <- function(lstar.draws, E, lstar.mu = NULL) {
   lstar <- apply(lstar.draws, 2, mean)
